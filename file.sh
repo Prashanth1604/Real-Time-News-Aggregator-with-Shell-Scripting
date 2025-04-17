@@ -180,11 +180,13 @@ EOF
             if [ "$VIEWS" -gt 0 ]; then
                 echo "CATEGORY BREAKDOWN:" >> "$TEMP_FILE"
                 echo "-------------------" >> "$TEMP_FILE"
+
                 query_mysql "SELECT CONCAT(category, ': ', COUNT()) FROM user_activity WHERE userid='$USERID' GROUP BY category ORDER BY COUNT() DESC" >> "$TEMP_FILE"
             fi
 
             dialog --title "User Analytics" --textbox "$TEMP_FILE" 20 70
             rm -f "$TEMP_FILE"
+
             ;;
 
 
@@ -300,3 +302,6 @@ EOF
             ;;
     esac
 done
+=======
+            ;;    
+
