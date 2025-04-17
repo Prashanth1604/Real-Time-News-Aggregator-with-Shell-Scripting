@@ -180,9 +180,128 @@ EOF
             if [ "$VIEWS" -gt 0 ]; then
                 echo "CATEGORY BREAKDOWN:" >> "$TEMP_FILE"
                 echo "-------------------" >> "$TEMP_FILE"
-                query_mysql "SELECT CONCAT(category, ': ', COUNT(*)) FROM user_activity WHERE userid='$USERID' GROUP BY category ORDER BY COUNT(*) DESC" >> "$TEMP_FILE"
+
+                query_mysql "SELECT CONCAT(category, ': ', COUNT()) FROM user_activity WHERE userid='$USERID' GROUP BY category ORDER BY COUNT() DESC" >> "$TEMP_FILE"
             fi
 
             dialog --title "User Analytics" --textbox "$TEMP_FILE" 20 70
             rm -f "$TEMP_FILE"
+
+            ;;
+
+
+
+*)
+            # Check if choice is within categories range
+            if [[ "$CHOICE" -ge 1 && "$CHOICE" -le ${#CATEGORIES[@]} ]]; then
+                CATEGORY="${CATEGORIES[$((CHOICE-1))]}"
+
+                # Show loading message
+                dialog --infobox "Fetching $CATEGORY news..." 5 40
+
+                # Use curl with timeout to fetch news
+                RESPONSE=$(curl -s -m 10 "${BASE_URL}?access_key=${API_KEY}&categories=${CATEGORY}&countries=${COUNTRIES}&languages=en&limit=10")
+
+                # Check for curl errors
+                if [ $? -ne 0 ]; then
+                    dialog --msgbox "Failed to connect to news API. Please check your internet connection." 8 60
+                    continue
+                fi
+
+                # Check for API errors
+                if echo "$RESPONSE" | jq -e '.error' >/dev/null; then
+                    ERROR_MSG=$(echo "$RESPONSE" | jq -r '.error.message // "Unknown API error"')
+                    dialog --msgbox "API Error: $ERROR_MSG" 8 60
+                    continue
+                fi
+
+                COUNT=$(echo "$RESPONSE" | jq '.data | length')
+
+                if [ "$COUNT" -eq 0 ]; then
+                    dialog --msgbox "No articles found for category: $CATEGORY" 8 50
+                    continue
+                fi
+
+                # Build article selection menu
+                ARTICLE_MENU=()
+                for ((i=0; i<COUNT; i++)); do
+                    TITLE=$(echo "$RESPONSE" | jq -r ".data[$i].title" | cut -c1-80)
+                    ARTICLE_MENU+=($i "$TITLE")
+                done
+
+                # Show article selection menu
+                IDX=$(dialog --menu "Select a $CATEGORY article" 20 70 15 "${ARTICLE_MENU[@]}" 3>&1 1>&2 2>&3)
+
+                # Handle cancel action
+                [ -z "$IDX" ] && continue
+
+                # Extract article data
+                ARTICLE=$(echo "$RESPONSE" | jq ".data[$IDX]")
+
+                # Properly escape single quotes for SQL
+                TITLE=$(echo "$ARTICLE" | jq -r .title)
+                SAFE_TITLE="${TITLE//\'/\'\'}"
+
+                URL=$(echo "$ARTICLE" | jq -r .url)
+                SAFE_URL="${URL//\'/\'\'}"
+
+                DESC=$(echo "$ARTICLE" | jq -r '.description // "No description available."')
+                PUBLISHED=$(echo "$ARTICLE" | jq -r .published_at)
+
+                # Record user activity
+                execute_mysql "INSERT INTO user_activity (userid, title, category, viewed_at)
+                    VALUES ('$USERID', '$SAFE_TITLE', '$CATEGORY', NOW());"
+
+                # Show article action menu
+                ACTION=$(dialog --menu "Choose action for article:" 15 60 3 \
+                    1 "View" \
+                    2 "Bookmark" \
+                    3 "Back to menu" \
+                    3>&1 1>&2 2>&3)
+
+                # Handle cancel action
+                [ -z "$ACTION" ] && continue
+
+                case "$ACTION" in
+                    1) # View article
+                        TEMP_FILE="/tmp/article-$$-${RANDOM}.txt"
+                        cat > "$TEMP_FILE" << EOF
+ARTICLE DETAILS:
+---------------
+Title: $TITLE
+
+Description: $DESC
+
+Published: $PUBLISHED
+
+URL: $URL
+
+EOF
+                        dialog --title "Article View" --textbox "$TEMP_FILE" 20 80
+                        rm -f "$TEMP_FILE"
+                        ;;
+
+                    2) # Bookmark article
+                        execute_mysql "INSERT INTO bookmarks (userid, username, title, url, category, published_at)
+                            VALUES ('$USERID', '$SAFE_USERNAME', '$SAFE_TITLE', '$SAFE_URL', '$CATEGORY', '$PUBLISHED')"
+
+                        if [ $? -eq 0 ]; then
+                            dialog --msgbox "Article successfully bookmarked!" 8 40
+                        else
+                            dialog --msgbox "Failed to bookmark article. Please try again." 8 50
+                        fi
+                        ;;
+
+                    3) # Back to menu
+                        continue
+                        ;;
+                esac
+            else
+                dialog --msgbox "Invalid option selected." 8 40
+            fi
+            ;;
+    esac
+done
+=======
             ;;    
+
