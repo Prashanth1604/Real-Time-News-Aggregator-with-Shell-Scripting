@@ -185,7 +185,10 @@ EOF
 
             dialog --title "User Analytics" --textbox "$TEMP_FILE" 20 70
             rm -f "$TEMP_FILE"
-            ;;    
+            ;;
+
+
+
 *)
             # Check if choice is within categories range
             if [[ "$CHOICE" -ge 1 && "$CHOICE" -le ${#CATEGORIES[@]} ]]; then
