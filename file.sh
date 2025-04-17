@@ -118,4 +118,71 @@ while true; do
     MENU_ITEMS+=(10 "View Analytics")
     MENU_ITEMS+=(11 "Exit")
 
-    
+# Show main menu
+    CHOICE=$(dialog --clear \
+        --backtitle "News App - Logged in as: $USERNAME" \
+        --title "Main Menu" \
+        --menu "Choose an option:" 20 50 15 \
+        "${MENU_ITEMS[@]}" \
+        3>&1 1>&2 2>&3)
+
+    # Handle cancel/ESC
+    [ -z "$CHOICE" ] && clean_exit
+
+    # Process menu selection
+    case "$CHOICE" in
+        11) # Exit option
+            clean_exit
+            ;;
+
+        9) # View Bookmarks
+            # Get bookmarks with formatting
+            BOOKMARKS=$(query_mysql "SELECT CONCAT('Title: ', title, '\nURL: ', url, '\nCategory: ', category, '\nBookmarked: ', bookmarked_at, '\n----------\n') FROM bookmarks WHERE userid='$USERID'")
+
+            if [ -z "$BOOKMARKS" ]; then
+                dialog --msgbox "No bookmarks found." 10 40
+            else
+                TEMP_FILE="/tmp/bookmarks-$$-${RANDOM}.txt"
+                echo -e "YOUR BOOKMARKS:\n\n$BOOKMARKS" > "$TEMP_FILE"
+                dialog --title "Your Bookmarks" --textbox "$TEMP_FILE" 20 80
+                rm -f "$TEMP_FILE"
+            fi
+            ;;
+
+        10) # View Analytics
+            # Get user analytics data
+            LAST_LOGIN=$(query_mysql "SELECT last_login FROM user_logins WHERE userid='$USERID'")
+            VIEWS=$(query_mysql "SELECT COUNT(*) FROM user_activity WHERE userid='$USERID'")
+            BOOKMARK_COUNT=$(query_mysql "SELECT COUNT(*) FROM bookmarks WHERE userid='$USERID'")
+            TOP_CATEGORY=$(query_mysql "SELECT category FROM user_activity WHERE userid='$USERID' GROUP BY category ORDER BY COUNT(*) DESC LIMIT 1")
+
+            # Handle empty results
+            [ -z "$LAST_LOGIN" ] && LAST_LOGIN="First login"
+            [ -z "$VIEWS" ] && VIEWS=0
+            [ -z "$BOOKMARK_COUNT" ] && BOOKMARK_COUNT=0
+            [ -z "$TOP_CATEGORY" ] && TOP_CATEGORY="None yet"
+
+            # Format and display analytics
+            TEMP_FILE="/tmp/analytics-$$-${RANDOM}.txt"
+            cat > "$TEMP_FILE" << EOF
+YOUR ACTIVITY STATISTICS:
+------------------------
+Username: $USERNAME
+User ID: $USERID
+Last Login: $LAST_LOGIN
+Articles Viewed: $VIEWS
+Bookmarks: $BOOKMARK_COUNT
+Top Category: $TOP_CATEGORY
+
+EOF
+
+            # Add category breakdown if there's activity
+            if [ "$VIEWS" -gt 0 ]; then
+                echo "CATEGORY BREAKDOWN:" >> "$TEMP_FILE"
+                echo "-------------------" >> "$TEMP_FILE"
+                query_mysql "SELECT CONCAT(category, ': ', COUNT(*)) FROM user_activity WHERE userid='$USERID' GROUP BY category ORDER BY COUNT(*) DESC" >> "$TEMP_FILE"
+            fi
+
+            dialog --title "User Analytics" --textbox "$TEMP_FILE" 20 70
+            rm -f "$TEMP_FILE"
+            ;;    
